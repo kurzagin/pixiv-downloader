@@ -8,6 +8,7 @@
   ],
   "scripts": {
     "dev": "bun --filter web dev",
+    "dev:mobile": "bun --filter mobile start",
     "build": "bun --filter web build",
     "start": "bun --filter web start",
     "dev:all": "bun --filter web dev",
