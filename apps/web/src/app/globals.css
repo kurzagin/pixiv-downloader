@@ -1,0 +1,15 @@
+@import "tailwindcss";
+@import "@kurzagin/ui/styles.css";
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  background-color: var(--kz-bg-deep, #0a0c10);
+  color: var(--kz-text-primary, #e6edf3);
+  font-family: var(--kz-font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+}
