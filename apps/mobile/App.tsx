@@ -79,8 +79,10 @@ export default function App() {
       const ext = url.split('.').pop()?.split('?')[0] || 'jpg';
       const fileName = `pixiv_${artwork.id}_p${index}_${Date.now()}.${ext}`;
       const res = await downloadImageToGallery(url, fileName);
-      if (res.method === 'gallery') {
-        Alert.alert('Saved!', `Image p${index} saved directly to your photos gallery.`);
+      if (res.method === 'downloads') {
+        Alert.alert('Saved to /Downloads!', `Image p${index} saved directly to your Downloads folder.`);
+      } else if (res.method === 'gallery') {
+        Alert.alert('Saved!', `Image p${index} saved to your photos gallery.`);
       }
     } catch (err: any) {
       Alert.alert('Download Error', err.message || 'Failed to save image.');
@@ -102,9 +104,9 @@ export default function App() {
         await downloadImageToGallery(url, fileName);
         successCount++;
       }
-      Alert.alert('Complete!', `Successfully processed ${successCount} artworks.`);
+      Alert.alert('Downloads Complete!', `Saved ${successCount} artworks directly to your Downloads folder.`);
     } catch (err: any) {
-      Alert.alert('Error', `Processed ${successCount} artworks before error: ${err.message}`);
+      Alert.alert('Download Notice', `Processed ${successCount} artworks: ${err.message}`);
     } finally {
       setDownloadingAll(false);
     }
