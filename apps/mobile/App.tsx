@@ -14,6 +14,7 @@ import {
   Alert,
   Platform,
   StatusBar as RNStatusBar,
+  TouchableWithoutFeedback,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Image } from 'expo-image';
@@ -264,27 +265,37 @@ export default function App() {
       </ScrollView>
 
       {/* Fullscreen Preview Modal */}
-      <Modal visible={!!previewUrl} transparent animationType="fade">
-        <View style={styles.modalBackdrop}>
-          <TouchableOpacity
-            style={styles.closeModalBtn}
-            onPress={() => setPreviewUrl(null)}
-          >
-            <X color={colors.text} size={24} />
-          </TouchableOpacity>
-          {previewUrl && (
-            <Image
-              source={{
-                uri: previewUrl,
-                headers: {
-                  Referer: PIXIV_REFERER,
-                },
-              }}
-              style={styles.fullscreenImage}
-              contentFit="contain"
-            />
-          )}
-        </View>
+      <Modal
+        visible={!!previewUrl}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPreviewUrl(null)}
+      >
+        <TouchableWithoutFeedback onPress={() => setPreviewUrl(null)}>
+          <View style={styles.modalBackdrop}>
+            <TouchableOpacity
+              style={styles.closeModalBtn}
+              onPress={() => setPreviewUrl(null)}
+              hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
+            >
+              <X color={colors.text} size={24} />
+            </TouchableOpacity>
+            {previewUrl && (
+              <TouchableWithoutFeedback onPress={() => setPreviewUrl(null)}>
+                <Image
+                  source={{
+                    uri: previewUrl,
+                    headers: {
+                      Referer: PIXIV_REFERER,
+                    },
+                  }}
+                  style={styles.fullscreenImage}
+                  contentFit="contain"
+                />
+              </TouchableWithoutFeedback>
+            )}
+          </View>
+        </TouchableWithoutFeedback>
       </Modal>
     </SafeAreaView>
   );
