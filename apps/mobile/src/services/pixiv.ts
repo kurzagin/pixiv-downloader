@@ -176,10 +176,10 @@ export async function getOrSelectDownloadsDirectory(): Promise<string | null> {
     const { StorageAccessFramework } = FileSystem;
     if (!StorageAccessFramework) return null;
 
-    const initialUri = StorageAccessFramework.getUriForDirectoryInRoot('Download');
-    const permissions = await StorageAccessFramework.requestDirectoryPermissionsAsync(initialUri);
+    // Do NOT pass a restrictive initial URI, as Android 11+ restricts tree access directly on primary:Download root
+    const permissions = await StorageAccessFramework.requestDirectoryPermissionsAsync();
 
-    if (permissions.granted) {
+    if (permissions && permissions.granted) {
       await AsyncStorage.setItem(SAF_DIR_KEY, permissions.directoryUri);
       return permissions.directoryUri;
     }
