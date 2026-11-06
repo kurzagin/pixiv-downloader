@@ -11,10 +11,11 @@
   "dependencies": {
     "@kurzagin/ui": "workspace:*",
     "expo": "~58.0.23",
-    "expo-status-bar": "~58.0.4",
-    "expo-image": "~58.0.18",
     "expo-file-system": "~58.0.13",
+    "expo-image": "~58.0.18",
     "expo-media-library": "~58.0.13",
+    "expo-sharing": "~58.0.22",
+    "expo-status-bar": "~58.0.4",
     "lucide-react-native": "^1.70.0",
     "react": "19.3.1",
     "react-native": "0.88.1",

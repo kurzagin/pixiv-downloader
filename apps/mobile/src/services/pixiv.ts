@@ -1,5 +1,6 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
+import * as Sharing from 'expo-sharing';
 import { PixivPage, ArtworkData } from '../types/pixiv';
 
 export const PIXIV_REFERER = 'https://www.pixiv.net/';
@@ -157,17 +158,12 @@ export async function fetchPixivArtwork(illustId: string): Promise<ArtworkData> 
 }
 
 /**
- * Direct file download and save to phone gallery without backend
+ * Direct file download and save to phone gallery or share sheet fallback
  */
 export async function downloadImageToGallery(
   imageUrl: string,
   fileName: string
-): Promise<string> {
-  const { status } = await MediaLibrary.requestPermissionsAsync();
-  if (status !== 'granted') {
-    throw new Error('Permission to access photos/media library is required to save artwork.');
-  }
-
+): Promise<{ uri: string; method: 'gallery' | 'shared' }> {
   const localUri = `${FileSystem.documentDirectory || FileSystem.cacheDirectory}${fileName}`;
 
   const downloadResult = await FileSystem.downloadAsync(imageUrl, localUri, {
@@ -181,6 +177,26 @@ export async function downloadImageToGallery(
     throw new Error(`Failed to download image (HTTP ${downloadResult.status})`);
   }
 
-  const asset = await MediaLibrary.createAssetAsync(downloadResult.uri);
-  return asset.uri;
+  // Attempt saving directly to MediaLibrary
+  try {
+    const { status } = await MediaLibrary.requestPermissionsAsync();
+    if (status === 'granted') {
+      const asset = await MediaLibrary.createAssetAsync(downloadResult.uri);
+      return { uri: asset.uri, method: 'gallery' };
+    }
+  } catch (mediaLibErr) {
+    console.warn('MediaLibrary permission or createAsset failed, falling back to share sheet:', mediaLibErr);
+  }
+
+  // Fallback: If MediaLibrary permission is denied/rejected (common on Android 13+ or Expo Go),
+  // open native share sheet so user can save directly to Photos, Drive, or Files
+  if (await Sharing.isAvailableAsync()) {
+    await Sharing.shareAsync(downloadResult.uri, {
+      mimeType: fileName.endsWith('.png') ? 'image/png' : 'image/jpeg',
+      dialogTitle: 'Save or Share Artwork',
+    });
+    return { uri: downloadResult.uri, method: 'shared' };
+  }
+
+  throw new Error('Permission denied to save photos and sharing is unavailable on this device.');
 }
