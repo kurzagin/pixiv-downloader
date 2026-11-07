@@ -32,7 +32,7 @@
         {
           "photosPermission": "Allow Pixiv Downloader to save artwork to your photos.",
           "savePhotosPermission": "Allow Pixiv Downloader to save artwork to your photos.",
-          "granularPermissions": ["photo", "video", "audio"]
+          "granularPermissions": ["photo"]
         }
       ]
     ]
