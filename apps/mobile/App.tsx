@@ -10,12 +10,12 @@ import {
   FlatList,
   Modal,
   Dimensions,
-  SafeAreaView,
   Alert,
   Platform,
   StatusBar as RNStatusBar,
   TouchableWithoutFeedback,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Image } from 'expo-image';
 import { colors } from '@kurzagin/ui/tokens';
