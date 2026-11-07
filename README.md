@@ -1,43 +1,72 @@
-# Pixiv Downloader (Zero-Login / No OAuth)
+# Pixiv Downloader (Zero-Login / Standalone Monorepo)
 
-A lightweight Pixiv illustration and manga downloader built with React, Vite, TypeScript for the frontend and Node.js (Express, TypeScript) for the backend.
+A cyber-minimalist Pixiv illustration and manga extractor built as a high-performance monorepo powered by **Bun**, **Next.js**, **Expo (React Native)**, and the **`@kurzagin/ui`** design system.
 
-It requires no OAuth, no tokens, and no login cookies. Works seamlessly for all-ages artworks and multi-page albums.
-
----
-
-## How It Works
-
-1. **Artwork Resolution:** Queries Pixiv's public AJAX web endpoints (`/ajax/illust/{id}` and `/touch/ajax/illust/details?illust_id=...`) without requiring login credentials.
-2. **CDN Streaming:** Downloads full master resolution (`urls.original`) directly from Pixiv's CDN (`i.pximg.net`) by automatically setting the required `Referer: https://www.pixiv.net/` header.
-3. **Browser Compatibility:** Acts as a transparent proxy for image previews (bypassing browser CORS/403 blocks) and streams single downloads or on-the-fly `.ZIP` bundles for multi-page albums.
+Requires **zero OAuth**, **no tokens**, and **no login cookies**. Works seamlessly for all-ages artworks and multi-page albums.
 
 ---
 
-## Quick Start (Single Command)
+## Workspace Structure
 
-From the project root:
-
-```bash
-# 1. Install all dependencies (if running for the first time)
-npm run install:all
-
-# 2. Start both backend and frontend concurrently
-npm run dev
+```
+├── apps/
+│   ├── web/          # Next.js 16 Web App with streaming proxy & zip bundling
+│   └── mobile/       # Standalone Expo (React Native) mobile app (Zero Backend)
+└── packages/
+    └── ui/           # @kurzagin/ui design system tokens, themes, & cyber-minimalist UI components
 ```
 
-- **Frontend (UI):** [http://localhost:5173](http://localhost:5173)
-- **Backend (API):** [http://localhost:3001](http://localhost:3001)
+---
+
+## Apps & Capabilities
+
+### 1. `apps/web` (Next.js Web Client)
+- **Direct Web Extractor:** Fast client interface styled with `@kurzagin/ui`.
+- **CORS & Referer Streaming:** Server routes (`/api/illust`, `/api/download/single`, `/api/download/all`) act as a transparent proxy setting `Referer: https://www.pixiv.net/` to stream full original master assets directly from Pixiv's CDN (`i.pximg.net`).
+- **On-the-fly Zip Bundles:** Downloads multi-page illustration sets directly as a single `.zip` file without local disk storage overhead.
+
+### 2. `apps/mobile` (Expo Mobile App)
+- **Zero Backend Required:** Native mobile network requests bypass browser CORS restrictions and supply the `Referer` header directly.
+- **Smart Input & Share Parser:** Recognizes bare illustration IDs, URLs (`/artworks/*`, `/en/artworks/*`), and formatted share strings copied directly from the official Pixiv app (e.g., `タイトル | 作者 #pixiv https://www.pixiv.net/en/artworks/12345678`).
+- **One-Tap Paste Button:** Reads clipboard contents via `expo-clipboard`, extracts the artwork ID, and immediately queries Pixiv.
+- **Deep Linking / Intent Filters:** Configured to handle Pixiv links and Android share intents (`ACTION_VIEW` and `ACTION_SEND`).
+- **Cyber-Minimalist Mobile UI:** Safe area notch handling, dark mode palette, fullscreen preview with back gesture / tap-to-dismiss support, and batch extraction.
+
+---
+
+## Quick Start
+
+Using [Bun](https://bun.sh):
+
+```bash
+# Install dependencies across all workspaces
+bun install
+
+# Start Next.js Web App (http://localhost:3000)
+bun dev
+
+# Start Expo Mobile App for Expo Go preview
+bun dev:mobile
+
+# Build all packages & apps
+bun run build:all
+```
 
 ---
 
 ## Features
 
 - **No Authentication Required:** Works out of the box with zero setup.
-- **Single Page & Multi-page Album Support:** Automatically detects albums and lets you download individual pictures or download all pages bundled in a `.ZIP`.
-- **Quality Selector:** Choose between `Original` (master quality, uncompressed) and `Regular`.
-- **Rich Metadata Preview:** Displays artwork title, artist name, avatar, resolution, creation date, view count, like count, and tags.
-- **Smart Input Parsing:** Accepts bare illust IDs (`115480000`) or full URLs (`https://www.pixiv.net/artworks/115480000`).
+- **Single Page & Multi-page Album Support:** Automatically detects albums and lets you download individual pictures or save all pages.
+- **Rich Metadata Preview:** Displays artwork title, artist name, username, resolution, creation date, view count, like count, bookmark count, and tags.
+- **Dual Platform:** Run it on the web or test it on your mobile device via Expo Go.
+
+---
+
+## Author & Attribution
+
+- **Made by:** [Kurzagin](https://kurzagin.com)
+- **Repository:** [github.com/kurzagin/pixiv-downloader](https://github.com/kurzagin/pixiv-downloader)
 
 ---
 
