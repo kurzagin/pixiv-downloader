@@ -12,6 +12,7 @@
     "build": "bun --filter web build",
     "start": "bun --filter web start",
     "dev:all": "bun --filter web dev",
-    "build:all": "bun --filter @kurzagin/ui build && bun --filter web build"
+    "build:sdk": "bun --filter pixivjs build",
+    "build:all": "bun --filter pixivjs build && bun --filter @kurzagin/ui build && bun --filter web build"
   }
 }

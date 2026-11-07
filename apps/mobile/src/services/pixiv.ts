@@ -4,7 +4,13 @@ import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { PixivPage, ArtworkData } from '../types/pixiv';
+import { PixivClient, extractIllustId, isPixivCdnUrl } from 'pixivjs';
+import type { PixivPage, ArtworkData } from 'pixivjs';
+
+export { extractIllustId, isPixivCdnUrl };
+export type { PixivPage, ArtworkData };
+
+export const pixivClient = new PixivClient();
 
 export const PIXIV_REFERER = 'https://www.pixiv.net/';
 export const PIXIV_HEADERS = {
@@ -16,172 +22,10 @@ export const PIXIV_HEADERS = {
 };
 
 /**
- * Robust parser for Pixiv artwork IDs:
- * Handles:
- * - Pure IDs: "151772434"
- * - Direct URLs: "https://www.pixiv.net/artworks/151772434"
- * - Localized URLs: "https://www.pixiv.net/en/artworks/151772434"
- * - Query params: "https://www.pixiv.net/member_illust.php?mode=medium&illust_id=151772434"
- * - Pixiv app shared text: "おめかし🐰うさギンガムチェック | 鯱ノ丸 #pixiv https://www.pixiv.net/en/artworks/151772434"
- * - Mobile short links: "pixiv.me/..." or "i.pximg.net/..."
- */
-export function extractIllustId(input: string): string | null {
-  if (!input) return null;
-  const trimmed = input.trim();
-
-  // 1. Pure numeric ID
-  if (/^\d+$/.test(trimmed)) {
-    return trimmed;
-  }
-
-  // 2. Contains /artworks/<id> (handles /artworks/123, /en/artworks/123, /zh/artworks/123, etc.)
-  const artworksMatch = trimmed.match(/artworks\/(\d+)/i);
-  if (artworksMatch) {
-    return artworksMatch[1];
-  }
-
-  // 3. Contains illust_id=<id>
-  const illustMatch = trimmed.match(/illust_id=(\d+)/i);
-  if (illustMatch) {
-    return illustMatch[1];
-  }
-
-  // 4. Any standalone sequence of 7 to 10 digits inside url-like strings
-  const fallbackDigits = trimmed.match(/https?:\/\/[^\s]+(\d{7,10})/);
-  if (fallbackDigits) {
-    return fallbackDigits[1];
-  }
-
-  return null;
-}
-
-/**
- * Direct client-side fetch without backend proxy
+ * Direct fetch without backend proxy using pixivjs
  */
 export async function fetchPixivArtwork(illustId: string): Promise<ArtworkData> {
-  const url = `https://www.pixiv.net/ajax/illust/${illustId}`;
-
-  const response = await fetch(url, {
-    method: 'GET',
-    headers: PIXIV_HEADERS,
-  });
-
-  if (response.status === 404) {
-    throw new Error('Artwork not found or has been deleted.');
-  }
-
-  if (!response.ok) {
-    throw new Error(`Pixiv API responded with status ${response.status}`);
-  }
-
-  const json: any = await response.json();
-
-  if (json.error) {
-    throw new Error(json.message || 'Failed to fetch artwork from Pixiv');
-  }
-
-  const body = json.body;
-  let pages: PixivPage[] = [];
-
-  // 1. Try standard desktop pages endpoint
-  try {
-    const pagesUrl = `https://www.pixiv.net/ajax/illust/${illustId}/pages`;
-    const pagesRes = await fetch(pagesUrl, {
-      method: 'GET',
-      headers: PIXIV_HEADERS,
-    });
-
-    if (pagesRes.ok) {
-      const pagesJson: any = await pagesRes.json();
-      if (!pagesJson.error && Array.isArray(pagesJson.body) && pagesJson.body.length > 0) {
-        pages = pagesJson.body;
-      }
-    }
-  } catch (err) {
-    console.warn(`Could not fetch desktop pages for ${illustId}:`, err);
-  }
-
-  // 2. Check if desktop returned valid URLs or null (e.g. R-18 works)
-  const desktopHasValidUrls =
-    pages.length > 0 && pages[0]?.urls && (pages[0].urls.regular || pages[0].urls.original);
-
-  if (!desktopHasValidUrls) {
-    try {
-      const touchUrl = `https://www.pixiv.net/touch/ajax/illust/details?illust_id=${illustId}`;
-      const touchRes = await fetch(touchUrl, {
-        method: 'GET',
-        headers: PIXIV_HEADERS,
-      });
-
-      if (touchRes.ok) {
-        const touchJson: any = await touchRes.json();
-        const touchIllust = touchJson?.body?.illust_details;
-
-        if (touchIllust) {
-          const pageCount = parseInt(touchIllust.page_count, 10) || 1;
-          const origUrl =
-            touchIllust.url_big ||
-            touchIllust.url_original ||
-            touchIllust.url_s ||
-            touchIllust.url;
-
-          if (origUrl) {
-            pages = [];
-            for (let i = 0; i < pageCount; i++) {
-              const pageOrig = origUrl.replace(/_p\d+/, `_p${i}`);
-              pages.push({
-                urls: {
-                  thumb_mini: pageOrig,
-                  small: pageOrig,
-                  regular: pageOrig,
-                  original: pageOrig,
-                },
-                width: parseInt(touchIllust.width, 10) || 0,
-                height: parseInt(touchIllust.height, 10) || 0,
-              });
-            }
-          }
-        }
-      }
-    } catch (touchErr) {
-      console.warn(`Touch endpoint fallback failed for ${illustId}:`, touchErr);
-    }
-  }
-
-  // If single-page artwork has no pages array, build from body.urls
-  if (pages.length === 0 && body.urls) {
-    pages.push({
-      urls: {
-        thumb_mini: body.urls.mini,
-        small: body.urls.small,
-        regular: body.urls.regular,
-        original: body.urls.original,
-      },
-      width: body.width,
-      height: body.height,
-    });
-  }
-
-  return {
-    id: body.id,
-    title: body.title,
-    description: body.description,
-    illustType: body.illustType,
-    createDate: body.createDate,
-    uploadDate: body.uploadDate,
-    pageCount: body.pageCount,
-    width: body.width,
-    height: body.height,
-    userName: body.userName,
-    userId: body.userId,
-    userAccount: body.userAccount,
-    tags: body.tags?.tags || [],
-    likeCount: body.likeCount,
-    bookmarkCount: body.bookmarkCount,
-    viewCount: body.viewCount,
-    urls: body.urls || {},
-    pages,
-  };
+  return pixivClient.getArtwork(illustId);
 }
 
 const SAF_DIR_KEY = '@pixiv_saf_downloads_dir';
