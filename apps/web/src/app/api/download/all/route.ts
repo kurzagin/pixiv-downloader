@@ -23,10 +23,27 @@ export async function POST(request: NextRequest) {
     const passThrough = new PassThrough();
     archive.pipe(passThrough);
 
+    let isAborted = false;
+    const onAbort = () => {
+      isAborted = true;
+      try {
+        archive.abort();
+      } catch {
+        // ignore
+      }
+    };
+
+    if (request.signal) {
+      request.signal.addEventListener('abort', onAbort, { once: true });
+    }
+
     // Asynchronously append images to archive
     (async () => {
       try {
         for (let i = 0; i < data.pages.length; i++) {
+          if (isAborted || request.signal?.aborted) {
+            break;
+          }
           const page = data.pages[i];
           const url = page.urls.original;
           const ext = url.split('.').pop()?.split('?')[0] || 'jpg';
@@ -39,10 +56,16 @@ export async function POST(request: NextRequest) {
             console.error(`Error appending page ${i} (${url}):`, err.message);
           }
         }
-        await archive.finalize();
+        if (!isAborted && !request.signal?.aborted) {
+          await archive.finalize();
+        }
       } catch (archiveErr: any) {
         console.error('Archiver error:', archiveErr);
         archive.abort();
+      } finally {
+        if (request.signal) {
+          request.signal.removeEventListener('abort', onAbort);
+        }
       }
     })();
 

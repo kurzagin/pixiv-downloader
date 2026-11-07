@@ -9,6 +9,21 @@ export const PIXIV_HEADERS = {
   'Accept-Language': 'en-US,en;q=0.9,ja;q=0.8',
 };
 
+export function isPixivCdnUrl(urlStr: string): boolean {
+  try {
+    const parsed = new URL(urlStr);
+    return (
+      parsed.protocol === 'https:' &&
+      (parsed.hostname === 'i.pximg.net' ||
+        parsed.hostname.endsWith('.pximg.net') ||
+        parsed.hostname === 'pixiv.net' ||
+        parsed.hostname.endsWith('.pixiv.net'))
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function extractIllustId(input: string): string | null {
   const trimmed = input.trim();
   if (/^\d+$/.test(trimmed)) {
@@ -152,6 +167,10 @@ export async function fetchPixivArtwork(illustId: string): Promise<ArtworkData> 
 }
 
 export async function fetchPixivImageStream(imageUrl: string) {
+  if (!isPixivCdnUrl(imageUrl)) {
+    throw new Error('Invalid or untrusted image URL domain');
+  }
+
   const response = await request(imageUrl, {
     method: 'GET',
     headers: {

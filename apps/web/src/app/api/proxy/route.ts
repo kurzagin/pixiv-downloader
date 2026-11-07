@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { fetchPixivImageStream } from '@/lib/pixiv';
+import { fetchPixivImageStream, isPixivCdnUrl } from '@/lib/pixiv';
 import { Readable } from 'stream';
 
 export async function GET(request: NextRequest) {
@@ -7,6 +7,10 @@ export async function GET(request: NextRequest) {
     const imageUrl = request.nextUrl.searchParams.get('url');
     if (!imageUrl) {
       return NextResponse.json({ error: 'Missing "url" query parameter' }, { status: 400 });
+    }
+
+    if (!isPixivCdnUrl(imageUrl)) {
+      return NextResponse.json({ error: 'Invalid or untrusted image URL domain' }, { status: 403 });
     }
 
     const { body, contentType, contentLength } = await fetchPixivImageStream(imageUrl);
