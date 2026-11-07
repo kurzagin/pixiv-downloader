@@ -1,6 +1,6 @@
 # Pixiv Downloader (Zero-Login / Standalone Monorepo)
 
-A cyber-minimalist Pixiv illustration and manga extractor built as a high-performance monorepo powered by **Bun**, **Next.js**, **Expo (React Native)**, and the **`@kurzagin/ui`** design system.
+A cyber-minimalist Pixiv illustration and manga extractor built as a high-performance monorepo powered by **Bun**, **Next.js**, **Expo (React Native)**, and the **`@krpkg/ui`** design system.
 
 Requires **zero OAuth**, **no tokens**, and **no login cookies**. Works seamlessly for all-ages artworks and multi-page albums.
 
@@ -21,7 +21,7 @@ Requires **zero OAuth**, **no tokens**, and **no login cookies**. Works seamless
 ## Apps & Capabilities
 
 ### 1. `apps/web` (Next.js Web Client)
-- **Direct Web Extractor:** Fast client interface styled with `@kurzagin/ui`.
+- **Direct Web Extractor:** Fast client interface styled with `@krpkg/ui`.
 - **CORS & Referer Streaming:** Server routes (`/api/illust`, `/api/download/single`, `/api/download/all`) act as a transparent proxy setting `Referer: https://www.pixiv.net/` to stream full original master assets directly from Pixiv's CDN (`i.pximg.net`).
 - **On-the-fly Zip Bundles:** Downloads multi-page illustration sets directly as a single `.zip` file without local disk storage overhead.
 
