@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   Text,
@@ -7,17 +7,19 @@ import {
   TouchableOpacity,
   ScrollView,
   ActivityIndicator,
-  FlatList,
   Modal,
   Dimensions,
   Alert,
   Platform,
   StatusBar as RNStatusBar,
   TouchableWithoutFeedback,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Image } from 'expo-image';
+import * as Clipboard from 'expo-clipboard';
+import * as ExpoLinking from 'expo-linking';
 import { colors } from '@kurzagin/ui/tokens';
 import {
   Search,
@@ -27,10 +29,11 @@ import {
   Heart,
   Bookmark,
   Eye,
-  CheckCircle,
   AlertCircle,
   Maximize2,
   X,
+  ClipboardPaste,
+  Code2,
 } from 'lucide-react-native';
 import { ArtworkData } from './src/types/pixiv';
 import {
@@ -42,6 +45,9 @@ import {
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
+const GITHUB_REPO_URL = 'https://github.com/kurzagin/pixiv-downloader';
+const KURZAGIN_URL = 'https://kurzagin.com';
+
 export default function App() {
   const [inputUrl, setInputUrl] = useState('');
   const [loading, setLoading] = useState(false);
@@ -51,13 +57,34 @@ export default function App() {
   const [downloadingAll, setDownloadingAll] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
-  const handleSearch = async () => {
-    const id = extractIllustId(inputUrl);
-    if (!id) {
-      setError('Please enter a valid Pixiv URL or artwork ID');
-      return;
-    }
+  // Deep linking: catch URL shared to the app via Android Intent/browser
+  useEffect(() => {
+    const handleInitialUrl = async () => {
+      const initialUrl = await ExpoLinking.getInitialURL();
+      if (initialUrl) {
+        processIncomingUrl(initialUrl);
+      }
+    };
 
+    const subscription = ExpoLinking.addEventListener('url', (event) => {
+      if (event.url) {
+        processIncomingUrl(event.url);
+      }
+    });
+
+    handleInitialUrl();
+    return () => subscription.remove();
+  }, []);
+
+  const processIncomingUrl = (sharedTextOrUrl: string) => {
+    const id = extractIllustId(sharedTextOrUrl);
+    if (id) {
+      setInputUrl(sharedTextOrUrl);
+      loadArtwork(id);
+    }
+  };
+
+  const loadArtwork = async (id: string) => {
     setLoading(true);
     setError(null);
     setArtwork(null);
@@ -69,6 +96,44 @@ export default function App() {
       setError(err.message || 'Failed to fetch artwork from Pixiv');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSearch = async () => {
+    const id = extractIllustId(inputUrl);
+    if (!id) {
+      setError('Please enter a valid Pixiv URL, artwork ID, or shared Pixiv text');
+      return;
+    }
+    await loadArtwork(id);
+  };
+
+  const handlePasteFromClipboard = async () => {
+    try {
+      const hasString = await Clipboard.hasStringAsync();
+      if (!hasString) {
+        Alert.alert('Clipboard Empty', 'No text found in your clipboard.');
+        return;
+      }
+      const text = await Clipboard.getStringAsync();
+      if (!text || !text.trim()) {
+        Alert.alert('Clipboard Empty', 'No text found in your clipboard.');
+        return;
+      }
+
+      const id = extractIllustId(text);
+      if (id) {
+        setInputUrl(text);
+        await loadArtwork(id);
+      } else {
+        setInputUrl(text);
+        Alert.alert(
+          'Pasted',
+          'Text pasted, but no Pixiv artwork link/ID was recognized. Check input.'
+        );
+      }
+    } catch (err: any) {
+      Alert.alert('Clipboard Error', err.message || 'Could not read from clipboard.');
     }
   };
 
@@ -104,7 +169,7 @@ export default function App() {
         await downloadImageToGallery(url, fileName);
         successCount++;
       }
-      Alert.alert('Downloads Complete!', `Saved ${successCount} artworks directly to your Downloads folder.`);
+      Alert.alert('Complete!', `Successfully processed ${successCount} artworks.`);
     } catch (err: any) {
       Alert.alert('Download Notice', `Processed ${successCount} artworks: ${err.message}`);
     } finally {
@@ -126,31 +191,52 @@ export default function App() {
           <Text style={styles.subtitle}>Direct native extraction & gallery downloader</Text>
         </View>
 
-        {/* Search Bar */}
+        {/* Search & Paste Card */}
         <View style={styles.searchCard}>
           <View style={styles.inputRow}>
             <Search color={colors.accent} size={18} style={styles.searchIcon} />
             <TextInput
               style={styles.input}
-              placeholder="Pixiv URL or Illust ID (e.g. 114751433)"
+              placeholder="Pixiv URL, ID, or shared post"
               placeholderTextColor={colors.text3}
               value={inputUrl}
               onChangeText={setInputUrl}
               autoCapitalize="none"
               autoCorrect={false}
             />
-          </View>
-          <TouchableOpacity
-            style={[styles.primaryButton, loading && styles.buttonDisabled]}
-            onPress={handleSearch}
-            disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator color={colors.bg0} size="small" />
-            ) : (
-              <Text style={styles.primaryButtonText}>EXTRACT ARTWORK</Text>
+            {inputUrl.length > 0 && (
+              <TouchableOpacity
+                onPress={() => setInputUrl('')}
+                style={styles.clearBtn}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <X color={colors.text3} size={16} />
+              </TouchableOpacity>
             )}
-          </TouchableOpacity>
+          </View>
+
+          <View style={styles.buttonRow}>
+            <TouchableOpacity
+              style={styles.pasteButton}
+              onPress={handlePasteFromClipboard}
+              disabled={loading}
+            >
+              <ClipboardPaste color={colors.accent} size={15} />
+              <Text style={styles.pasteButtonText}>PASTE</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.primaryButton, loading && styles.buttonDisabled]}
+              onPress={handleSearch}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color={colors.bg0} size="small" />
+              ) : (
+                <Text style={styles.primaryButtonText}>EXTRACT ARTWORK</Text>
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Error Alert */}
@@ -266,6 +352,24 @@ export default function App() {
             </View>
           </View>
         )}
+
+        {/* Footer: Made by kurzagin & GitHub */}
+        <View style={styles.footer}>
+          <TouchableOpacity
+            style={styles.footerLink}
+            onPress={() => Linking.openURL(KURZAGIN_URL)}
+          >
+            <Text style={styles.footerBrand}>MADE BY KURZAGIN</Text>
+          </TouchableOpacity>
+          <Text style={styles.footerDivider}>//</Text>
+          <TouchableOpacity
+            style={styles.footerGithub}
+            onPress={() => Linking.openURL(GITHUB_REPO_URL)}
+          >
+            <Code2 color={colors.text2} size={14} />
+            <Text style={styles.footerGithubText}>SOURCE ON GITHUB</Text>
+          </TouchableOpacity>
+        </View>
       </ScrollView>
 
       {/* Fullscreen Preview Modal */}
@@ -379,9 +483,34 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 44,
     color: colors.text0,
-    fontSize: 14,
+    fontSize: 13,
+  },
+  clearBtn: {
+    padding: 6,
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  pasteButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: colors.accent,
+    borderRadius: 6,
+    paddingHorizontal: 14,
+    height: 44,
+    gap: 6,
+  },
+  pasteButtonText: {
+    color: colors.accent,
+    fontWeight: '700',
+    fontSize: 12,
+    letterSpacing: 0.5,
   },
   primaryButton: {
+    flex: 1,
     backgroundColor: colors.accent,
     height: 44,
     borderRadius: 6,
@@ -527,6 +656,39 @@ const styles = StyleSheet.create({
     color: colors.accent,
     fontSize: 11,
     fontWeight: '600',
+  },
+  footer: {
+    marginTop: 24,
+    marginBottom: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  footerLink: {
+    paddingVertical: 6,
+  },
+  footerBrand: {
+    fontSize: 11,
+    color: colors.accent,
+    fontWeight: '700',
+    letterSpacing: 1,
+  },
+  footerDivider: {
+    fontSize: 11,
+    color: colors.text3,
+  },
+  footerGithub: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingVertical: 6,
+  },
+  footerGithubText: {
+    fontSize: 11,
+    color: colors.text2,
+    fontWeight: '600',
+    letterSpacing: 0.5,
   },
   modalBackdrop: {
     flex: 1,
