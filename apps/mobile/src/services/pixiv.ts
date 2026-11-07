@@ -1,4 +1,5 @@
 import * as FileSystem from 'expo-file-system/legacy';
+import { Directory, File as ModernFile, Paths } from 'expo-file-system';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
 import { Platform } from 'react-native';
@@ -162,7 +163,7 @@ export async function fetchPixivArtwork(illustId: string): Promise<ArtworkData> 
 const SAF_DIR_KEY = '@pixiv_saf_downloads_dir';
 
 /**
- * Get or prompt user for Downloads directory access on Android via Storage Access Framework
+ * Get or prompt user for Downloads directory access on Android
  */
 export async function getOrSelectDownloadsDirectory(): Promise<string | null> {
   if (Platform.OS !== 'android') return null;
@@ -173,18 +174,30 @@ export async function getOrSelectDownloadsDirectory(): Promise<string | null> {
       return savedUri;
     }
 
-    const { StorageAccessFramework } = FileSystem;
-    if (!StorageAccessFramework) return null;
-
-    // Do NOT pass a restrictive initial URI, as Android 11+ restricts tree access directly on primary:Download root
-    const permissions = await StorageAccessFramework.requestDirectoryPermissionsAsync();
-
-    if (permissions && permissions.granted) {
-      await AsyncStorage.setItem(SAF_DIR_KEY, permissions.directoryUri);
-      return permissions.directoryUri;
+    // Try modern Directory.pickDirectoryAsync first (Expo 58+)
+    if (typeof Directory?.pickDirectoryAsync === 'function') {
+      try {
+        const pickedDir = await Directory.pickDirectoryAsync();
+        if (pickedDir && pickedDir.uri) {
+          await AsyncStorage.setItem(SAF_DIR_KEY, pickedDir.uri);
+          return pickedDir.uri;
+        }
+      } catch (pickErr: any) {
+        console.warn('Directory.pickDirectoryAsync failed or was cancelled:', pickErr);
+      }
     }
-  } catch (err) {
-    console.warn('StorageAccessFramework directory permission failed:', err);
+
+    // Fallback to legacy StorageAccessFramework
+    const { StorageAccessFramework } = FileSystem;
+    if (StorageAccessFramework) {
+      const permissions = await StorageAccessFramework.requestDirectoryPermissionsAsync();
+      if (permissions && permissions.granted) {
+        await AsyncStorage.setItem(SAF_DIR_KEY, permissions.directoryUri);
+        return permissions.directoryUri;
+      }
+    }
+  } catch (err: any) {
+    console.warn('Storage directory permission error:', err?.message || err);
   }
 
   return null;
@@ -221,36 +234,42 @@ export async function downloadImageToGallery(
   const isPng = fileName.endsWith('.png');
   const mimeType = isPng ? 'image/png' : 'image/jpeg';
 
-  // 1. Primary Strategy on Android: Save directly to selected /Download folder via StorageAccessFramework
+  // 1. Primary Strategy on Android: Save directly to selected folder
   if (Platform.OS === 'android') {
     try {
-      const { StorageAccessFramework } = FileSystem;
-      if (StorageAccessFramework) {
-        let dirUri = await getOrSelectDownloadsDirectory();
-        if (dirUri) {
-          // Read downloaded temp file as base64
-          const base64Data = await FileSystem.readAsStringAsync(downloadResult.uri, {
-            encoding: FileSystem.EncodingType.Base64,
-          });
+      let dirUri = await getOrSelectDownloadsDirectory();
+      if (dirUri) {
+        // Read downloaded temp file as base64
+        const base64Data = await FileSystem.readAsStringAsync(downloadResult.uri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
 
-          // fileName without extension for createFileAsync
+        // Try modern File API write if supported
+        try {
+          const targetDir = new Directory(dirUri);
           const rawName = fileName.replace(/\.[^/.]+$/, '');
-          const newFileUri = await StorageAccessFramework.createFileAsync(
-            dirUri,
-            rawName,
-            mimeType
-          );
-
-          await StorageAccessFramework.writeAsStringAsync(newFileUri, base64Data, {
-            encoding: FileSystem.EncodingType.Base64,
-          });
-
-          return { uri: newFileUri, method: 'downloads' };
+          const targetFile = targetDir.createFile(rawName, mimeType);
+          await targetFile.write(base64Data, { encoding: 'base64' as any });
+          return { uri: targetFile.uri, method: 'downloads' };
+        } catch (modernWriteErr) {
+          // Fallback to legacy SAF write
+          const { StorageAccessFramework } = FileSystem;
+          if (StorageAccessFramework) {
+            const rawName = fileName.replace(/\.[^/.]+$/, '');
+            const newFileUri = await StorageAccessFramework.createFileAsync(
+              dirUri,
+              rawName,
+              mimeType
+            );
+            await StorageAccessFramework.writeAsStringAsync(newFileUri, base64Data, {
+              encoding: FileSystem.EncodingType.Base64,
+            });
+            return { uri: newFileUri, method: 'downloads' };
+          }
         }
       }
     } catch (safErr: any) {
-      console.warn('SAF save to /Downloads failed, falling back:', safErr);
-      // If permission revoked or expired, clear cache so user can re-select next time
+      console.warn('Directory save failed, falling back:', safErr);
       await resetDownloadsDirectory();
     }
   }
