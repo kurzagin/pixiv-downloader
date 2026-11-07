@@ -274,15 +274,16 @@ export async function downloadImageToGallery(
     }
   }
 
-  // 2. Secondary Strategy: Attempt MediaLibrary
+  // 2. Secondary Strategy: Save directly to Photos Gallery via MediaLibrary (write-only / photo granular)
   try {
-    const { status } = await MediaLibrary.requestPermissionsAsync();
-    if (status === 'granted') {
+    // Request write-only permission with photo granular permission to prevent AUDIO check error in Expo Go
+    const permission = await MediaLibrary.requestPermissionsAsync(true, ['photo']);
+    if (permission.granted || permission.status === 'granted') {
       const asset = await MediaLibrary.createAssetAsync(downloadResult.uri);
       return { uri: asset.uri, method: 'gallery' };
     }
   } catch (mediaLibErr) {
-    console.warn('MediaLibrary permission or createAsset failed, falling back to share sheet:', mediaLibErr);
+    console.warn('MediaLibrary photo permission or createAsset failed, falling back to share sheet:', mediaLibErr);
   }
 
   // 3. Fallback: Native system Share sheet so user can choose "Save to Downloads/Files"
