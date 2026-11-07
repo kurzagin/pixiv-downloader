@@ -1,5 +1,5 @@
 @import "tailwindcss";
-@import "@kurzagin/ui/styles.css";
+@import "@krpkg/ui/styles.css";
 
 :root {
   color-scheme: dark;

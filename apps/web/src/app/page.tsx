@@ -24,7 +24,7 @@ import {
   CornerFrame,
   TechLabel,
   Logo,
-} from '@kurzagin/ui';
+} from '@krpkg/ui';
 import { ArtworkData } from '@/types/pixiv';
 
 export default function Home() {

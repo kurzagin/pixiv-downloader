@@ -20,7 +20,7 @@ import { StatusBar } from 'expo-status-bar';
 import { Image } from 'expo-image';
 import * as Clipboard from 'expo-clipboard';
 import * as ExpoLinking from 'expo-linking';
-import { colors } from '@kurzagin/ui/tokens';
+import { colors } from '@krpkg/ui/tokens';
 import {
   Search,
   Download,
