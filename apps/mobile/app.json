@@ -4,11 +4,11 @@
     "slug": "pixiv-downloader-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "../../packages/ui/assets/icon.png",
+    "icon": "../../node_modules/@krpkg/ui/assets/icon.png",
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "splash": {
-      "image": "../../packages/ui/assets/splash-icon.png",
+      "image": "../../node_modules/@krpkg/ui/assets/splash-icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#0a0a0c"
     },
@@ -19,7 +19,7 @@
     "android": {
       "package": "com.kurzagin.pixivdownloader",
       "adaptiveIcon": {
-        "foregroundImage": "../../packages/ui/assets/android-icon-foreground.png",
+        "foregroundImage": "../../node_modules/@krpkg/ui/assets/android-icon-foreground.png",
         "backgroundColor": "#0a0a0c"
       },
       "intentFilters": [
@@ -38,11 +38,16 @@
               "pathPrefix": "/en/artworks"
             }
           ],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         },
         {
           "action": "SEND",
-          "category": ["DEFAULT"],
+          "category": [
+            "DEFAULT"
+          ],
           "data": {
             "mimeType": "text/plain"
           }
@@ -55,12 +60,15 @@
       ]
     },
     "plugins": [
+      "./plugins/withShareIntentHandler.js",
       [
         "expo-media-library",
         {
           "photosPermission": "Allow Pixiv Downloader to save artwork to your photos.",
           "savePhotosPermission": "Allow Pixiv Downloader to save artwork to your photos.",
-          "granularPermissions": ["photo"]
+          "granularPermissions": [
+            "photo"
+          ]
         }
       ]
     ]

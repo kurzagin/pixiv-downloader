@@ -1,5 +1,5 @@
 import * as FileSystem from 'expo-file-system/legacy';
-import { Directory, File as ModernFile, Paths } from 'expo-file-system';
+import { Directory } from 'expo-file-system';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
 import { Platform } from 'react-native';
@@ -121,25 +121,97 @@ export async function resetDownloadsDirectory(): Promise<void> {
   await AsyncStorage.removeItem(SAF_DIR_KEY);
 }
 
+// In-memory cache for preview images (url -> local fileUri)
+const previewCache = new Map<string, string>();
+const previewPromises = new Map<string, Promise<string>>();
+
 /**
- * Direct file download and save directly to /Downloads directory (Android SAF),
- * with fallback to MediaLibrary or system Share sheet.
+ * Fetch and cache a preview image locally with Pixiv Referer header so Image components
+ * can load it seamlessly without 403 blocks.
+ */
+export async function getCachedPreviewUri(url: string): Promise<string> {
+  if (previewCache.has(url)) {
+    return previewCache.get(url)!;
+  }
+  if (previewPromises.has(url)) {
+    return previewPromises.get(url)!;
+  }
+
+  const promise = (async () => {
+    try {
+      const filename = `preview_${encodeURIComponent(url).slice(-40).replace(/[^a-zA-Z0-9]/g, '_')}.jpg`;
+      const localUri = `${FileSystem.cacheDirectory || ''}${filename}`;
+
+      // Check if already on disk
+      const info = await FileSystem.getInfoAsync(localUri);
+      if (info.exists) {
+        previewCache.set(url, localUri);
+        return localUri;
+      }
+
+      const res = await FileSystem.downloadAsync(url, localUri, {
+        headers: {
+          Referer: PIXIV_REFERER,
+          'User-Agent': PIXIV_HEADERS['User-Agent'],
+        },
+      });
+
+      if (res.status === 200) {
+        previewCache.set(url, res.uri);
+        return res.uri;
+      }
+      return url; // fallback
+    } catch (err) {
+      console.warn('Failed to cache preview image:', err);
+      return url; // fallback to original url
+    } finally {
+      previewPromises.delete(url);
+    }
+  })();
+
+  previewPromises.set(url, promise);
+  return promise;
+}
+
+export type DownloadProgressCallback = (progress: {
+  loaded: number;
+  total: number;
+  percent: number;
+}) => void;
+
+/**
+ * Direct file download with live progress tracking and saving to /Downloads (Android SAF)
+ * or Photos Gallery via MediaLibrary.
  */
 export async function downloadImageToGallery(
   imageUrl: string,
-  fileName: string
+  fileName: string,
+  onProgress?: DownloadProgressCallback
 ): Promise<{ uri: string; method: 'downloads' | 'gallery' | 'shared' }> {
   const localUri = `${FileSystem.documentDirectory || FileSystem.cacheDirectory}${fileName}`;
 
-  const downloadResult = await FileSystem.downloadAsync(imageUrl, localUri, {
-    headers: {
-      Referer: PIXIV_REFERER,
-      'User-Agent': PIXIV_HEADERS['User-Agent'],
+  const downloadResumable = FileSystem.createDownloadResumable(
+    imageUrl,
+    localUri,
+    {
+      headers: {
+        Referer: PIXIV_REFERER,
+        'User-Agent': PIXIV_HEADERS['User-Agent'],
+      },
     },
-  });
+    (progressData) => {
+      const total = progressData.totalBytesExpectedToWrite;
+      const loaded = progressData.totalBytesWritten;
+      const percent = total > 0 ? Math.min(100, Math.round((loaded / total) * 100)) : 0;
+      if (onProgress) {
+        onProgress({ loaded, total, percent });
+      }
+    }
+  );
 
-  if (downloadResult.status !== 200) {
-    throw new Error(`Failed to download image (HTTP ${downloadResult.status})`);
+  const downloadResult = await downloadResumable.downloadAsync();
+  if (!downloadResult || downloadResult.status !== 200) {
+    throw new Error(`Failed to download image (HTTP ${downloadResult?.status || 'unknown'})`);
   }
 
   const isPng = fileName.endsWith('.png');
@@ -150,12 +222,10 @@ export async function downloadImageToGallery(
     try {
       let dirUri = await getOrSelectDownloadsDirectory();
       if (dirUri) {
-        // Read downloaded temp file as base64
         const base64Data = await FileSystem.readAsStringAsync(downloadResult.uri, {
           encoding: FileSystem.EncodingType.Base64,
         });
 
-        // Try modern File API write if supported
         try {
           const targetDir = new Directory(dirUri);
           const rawName = fileName.replace(/\.[^/.]+$/, '');
@@ -163,7 +233,6 @@ export async function downloadImageToGallery(
           await targetFile.write(base64Data, { encoding: 'base64' as any });
           return { uri: targetFile.uri, method: 'downloads' };
         } catch (modernWriteErr) {
-          // Fallback to legacy SAF write
           const { StorageAccessFramework } = FileSystem;
           if (StorageAccessFramework) {
             const rawName = fileName.replace(/\.[^/.]+$/, '');
@@ -185,9 +254,8 @@ export async function downloadImageToGallery(
     }
   }
 
-  // 2. Secondary Strategy: Save directly to Photos Gallery via MediaLibrary (write-only / photo granular)
+  // 2. Secondary Strategy: Save directly to Photos Gallery via MediaLibrary
   try {
-    // Request write-only permission with photo granular permission to prevent AUDIO check error in Expo Go
     const permission = await MediaLibrary.requestPermissionsAsync(true, ['photo']);
     if (permission.granted || permission.status === 'granted') {
       const asset = await MediaLibrary.createAssetAsync(downloadResult.uri);
@@ -197,7 +265,7 @@ export async function downloadImageToGallery(
     console.warn('MediaLibrary photo permission or createAsset failed, falling back to share sheet:', mediaLibErr);
   }
 
-  // 3. Fallback: Native system Share sheet so user can choose "Save to Downloads/Files"
+  // 3. Fallback: Native system Share sheet so user can choose destination
   if (await Sharing.isAvailableAsync()) {
     await Sharing.shareAsync(downloadResult.uri, {
       mimeType,
