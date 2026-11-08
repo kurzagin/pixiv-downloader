@@ -9,7 +9,6 @@ import {
   ActivityIndicator,
   Modal,
   Dimensions,
-  Alert,
   Platform,
   StatusBar as RNStatusBar,
   TouchableWithoutFeedback,
@@ -35,6 +34,8 @@ import {
   X,
   ClipboardPaste,
   Code2,
+  CheckCircle2,
+  Info,
 } from 'lucide-react-native';
 import { ArtworkData } from './src/types/pixiv';
 import {
@@ -42,6 +43,7 @@ import {
   fetchPixivArtwork,
   downloadImageToGallery,
   sanitizeFilename,
+  getCachedPreviewUri,
   PIXIV_REFERER,
 } from './src/services/pixiv';
 
@@ -50,14 +52,109 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const GITHUB_REPO_URL = 'https://github.com/kurzagin/pixiv-downloader';
 const KURZAGIN_URL = 'https://kurzagin.com';
 
+interface DialogConfig {
+  visible: boolean;
+  title: string;
+  message: string;
+  variant?: 'info' | 'success' | 'danger';
+  confirmLabel?: string;
+  cancelLabel?: string;
+  onConfirm?: () => void;
+  onCancel?: () => void;
+}
+
+// Custom preview item component to auto-cache Pixiv image for preview
+function ArtworkPreviewImage({
+  previewUrl,
+  style,
+  contentFit = 'cover',
+}: {
+  previewUrl: string;
+  style: any;
+  contentFit?: 'cover' | 'contain';
+}) {
+  const [resolvedUri, setResolvedUri] = useState<string>(previewUrl);
+  const [imageLoading, setImageLoading] = useState(true);
+
+  useEffect(() => {
+    let isMounted = true;
+    setImageLoading(true);
+
+    getCachedPreviewUri(previewUrl)
+      .then((uri) => {
+        if (isMounted) {
+          setResolvedUri(uri);
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setResolvedUri(previewUrl);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [previewUrl]);
+
+  return (
+    <View style={[style, styles.previewContainer]}>
+      <Image
+        source={{
+          uri: resolvedUri,
+          headers: {
+            Referer: PIXIV_REFERER,
+          },
+        }}
+        style={StyleSheet.absoluteFill}
+        contentFit={contentFit}
+        transition={250}
+        onLoadEnd={() => setImageLoading(false)}
+      />
+      {imageLoading && (
+        <View style={styles.imageLoaderOverlay}>
+          <ActivityIndicator color={colors.accent} size="small" />
+        </View>
+      )}
+    </View>
+  );
+}
+
 export default function App() {
   const [inputUrl, setInputUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [artwork, setArtwork] = useState<ArtworkData | null>(null);
+
+  // Single download progress tracking: { [index]: percent }
+  const [singleProgress, setSingleProgress] = useState<{ [key: number]: number }>({});
   const [downloadingIndex, setDownloadingIndex] = useState<number | null>(null);
+
+  // Batch download progress tracking
   const [downloadingAll, setDownloadingAll] = useState(false);
+  const [batchProgress, setBatchProgress] = useState({
+    current: 0,
+    total: 0,
+    currentPercent: 0,
+  });
+
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  // In-app Styled Dialog Modal
+  const [dialog, setDialog] = useState<DialogConfig>({
+    visible: false,
+    title: '',
+    message: '',
+    variant: 'info',
+  });
+
+  const showAppDialog = (config: Omit<DialogConfig, 'visible'>) => {
+    setDialog({ ...config, visible: true });
+  };
+
+  const closeDialog = () => {
+    setDialog((prev) => ({ ...prev, visible: false }));
+  };
 
   // Deep linking: catch URL shared to the app via Android Intent/browser
   useEffect(() => {
@@ -114,12 +211,20 @@ export default function App() {
     try {
       const hasString = await Clipboard.hasStringAsync();
       if (!hasString) {
-        Alert.alert('Clipboard Empty', 'No text found in your clipboard.');
+        showAppDialog({
+          title: 'CLIPBOARD EMPTY',
+          message: 'No text found in your clipboard buffer.',
+          variant: 'info',
+        });
         return;
       }
       const text = await Clipboard.getStringAsync();
       if (!text || !text.trim()) {
-        Alert.alert('Clipboard Empty', 'No text found in your clipboard.');
+        showAppDialog({
+          title: 'CLIPBOARD EMPTY',
+          message: 'Clipboard content is blank.',
+          variant: 'info',
+        });
         return;
       }
 
@@ -129,53 +234,120 @@ export default function App() {
         await loadArtwork(id);
       } else {
         setInputUrl(text);
-        Alert.alert(
-          'Pasted',
-          'Text pasted, but no Pixiv artwork link/ID was recognized. Check input.'
-        );
+        showAppDialog({
+          title: 'PARSING NOTICE',
+          message: 'Text pasted, but no Pixiv artwork ID was recognized. Please check the URL.',
+          variant: 'info',
+        });
       }
     } catch (err: any) {
-      Alert.alert('Clipboard Error', err.message || 'Could not read from clipboard.');
+      showAppDialog({
+        title: 'CLIPBOARD ERROR',
+        message: err.message || 'Could not read from clipboard.',
+        variant: 'danger',
+      });
     }
   };
 
-  const handleDownloadSingle = async (url: string, index: number) => {
+  const confirmDownloadSingle = (url: string, index: number) => {
+    showAppDialog({
+      title: 'DOWNLOAD CONFIRMATION',
+      message: `Download high-resolution image for Page ${index + 1}?`,
+      variant: 'info',
+      confirmLabel: 'DOWNLOAD',
+      cancelLabel: 'CANCEL',
+      onConfirm: () => {
+        closeDialog();
+        startDownloadSingle(url, index);
+      },
+    });
+  };
+
+  const startDownloadSingle = async (url: string, index: number) => {
     if (!artwork) return;
     setDownloadingIndex(index);
+    setSingleProgress((prev) => ({ ...prev, [index]: 0 }));
+
     try {
       const ext = url.split('.').pop()?.split('?')[0] || 'jpg';
       const safeTitle = sanitizeFilename(artwork.title);
       const fileName = `pixiv_${artwork.id}_p${index}_${safeTitle}.${ext}`;
-      const res = await downloadImageToGallery(url, fileName);
-      if (res.method === 'downloads') {
-        Alert.alert('Saved to /Downloads!', `Image p${index} saved directly to your Downloads folder.`);
-      } else if (res.method === 'gallery') {
-        Alert.alert('Saved!', `Image p${index} saved to your photos gallery.`);
-      }
+
+      const res = await downloadImageToGallery(url, fileName, (progress) => {
+        setSingleProgress((prev) => ({ ...prev, [index]: progress.percent }));
+      });
+
+      showAppDialog({
+        title: 'SAVED SUCCESSFULLY',
+        message:
+          res.method === 'downloads'
+            ? `Page ${index + 1} saved directly to your Downloads folder.`
+            : `Page ${index + 1} saved to your Photos Gallery.`,
+        variant: 'success',
+      });
     } catch (err: any) {
-      Alert.alert('Download Error', err.message || 'Failed to save image.');
+      showAppDialog({
+        title: 'DOWNLOAD ERROR',
+        message: err.message || 'Failed to download and save image.',
+        variant: 'danger',
+      });
     } finally {
       setDownloadingIndex(null);
     }
   };
 
-  const handleDownloadAll = async () => {
+  const confirmDownloadAll = () => {
+    if (!artwork || !artwork.pages.length) return;
+    showAppDialog({
+      title: 'BATCH DOWNLOAD CONFIRMATION',
+      message: `Download all ${artwork.pages.length} images for "${artwork.title}"?`,
+      variant: 'info',
+      confirmLabel: 'START BATCH',
+      cancelLabel: 'CANCEL',
+      onConfirm: () => {
+        closeDialog();
+        startDownloadAll();
+      },
+    });
+  };
+
+  const startDownloadAll = async () => {
     if (!artwork || !artwork.pages.length) return;
     setDownloadingAll(true);
+    setBatchProgress({
+      current: 0,
+      total: artwork.pages.length,
+      currentPercent: 0,
+    });
+
     let successCount = 0;
+    const safeTitle = sanitizeFilename(artwork.title);
+
     try {
-      const safeTitle = sanitizeFilename(artwork.title);
       for (let i = 0; i < artwork.pages.length; i++) {
+        setBatchProgress((prev) => ({ ...prev, current: i + 1, currentPercent: 0 }));
         const page = artwork.pages[i];
         const url = page.urls.original || page.urls.regular;
         const ext = url.split('.').pop()?.split('?')[0] || 'jpg';
         const fileName = `pixiv_${artwork.id}_p${i}_${safeTitle}.${ext}`;
-        await downloadImageToGallery(url, fileName);
+
+        await downloadImageToGallery(url, fileName, (progress) => {
+          setBatchProgress((prev) => ({ ...prev, currentPercent: progress.percent }));
+        });
         successCount++;
       }
-      Alert.alert('Complete!', `Successfully processed ${successCount} artworks.`);
+
+      showAppDialog({
+        title: 'BATCH COMPLETE',
+        message: `Successfully processed and saved all ${successCount} artworks.`,
+        variant: 'success',
+      });
     } catch (err: any) {
-      Alert.alert('Download Notice', `Processed ${successCount} artworks: ${err.message}`);
+      showAppDialog({
+        title: 'BATCH NOTICE',
+        message: `Saved ${successCount} of ${artwork.pages.length} images. ${err.message}`,
+        variant: 'danger',
+      });
     } finally {
       setDownloadingAll(false);
     }
@@ -188,11 +360,10 @@ export default function App() {
         {/* Header Branding */}
         <View style={styles.header}>
           <View style={styles.badgeRow}>
-            <Badge label="STANDALONE // ZERO BACKEND" variant="accent" />
+            <Badge label="STANDALONE // DIRECT ENGINE" variant="accent" />
             <Dot color="accent" size={6} />
           </View>
-          <Text style={styles.title}>PIXIV EXTRACTOR</Text>
-          <TechLabel label="NETWORK_NODE" jp="ピクシブ抽出端末" coord="PX-MOBILE-V2" style={styles.techLabel} />
+          <Text style={styles.title}>PIXIV DOWNLOADER</Text>
         </View>
 
         {/* Search & Paste Card */}
@@ -288,23 +459,39 @@ export default function App() {
                 </View>
               </View>
 
+              {/* Batch Download Progress HUD */}
+              {downloadingAll && (
+                <View style={styles.batchProgressContainer}>
+                  <View style={styles.progressHeaderRow}>
+                    <Text style={styles.progressTitle}>
+                      DOWNLOADING PAGE {batchProgress.current} OF {batchProgress.total}
+                    </Text>
+                    <Text style={styles.progressPercentText}>{batchProgress.currentPercent}%</Text>
+                  </View>
+                  <View style={styles.progressBarTrack}>
+                    <View
+                      style={[
+                        styles.progressBarFill,
+                        { width: `${batchProgress.currentPercent}%` },
+                      ]}
+                    />
+                  </View>
+                </View>
+              )}
+
               {/* Batch Download Button */}
-              {artwork.pages.length > 1 && (
+              {artwork.pages.length > 1 && !downloadingAll && (
                 <CyberButton
                   variant="primary"
                   size="md"
                   style={styles.batchDownloadBtn}
-                  onPress={handleDownloadAll}
+                  onPress={confirmDownloadAll}
                   disabled={downloadingAll}
-                  icon={!downloadingAll ? <Download color={colors.bg0} size={16} /> : undefined}
+                  icon={<Download color={colors.bg0} size={16} />}
                 >
-                  {downloadingAll ? (
-                    <ActivityIndicator color={colors.bg0} size="small" />
-                  ) : (
-                    <Text style={styles.batchDownloadText}>
-                      SAVE ALL {artwork.pages.length} TO GALLERY
-                    </Text>
-                  )}
+                  <Text style={styles.batchDownloadText}>
+                    SAVE ALL {artwork.pages.length} TO GALLERY
+                  </Text>
                 </CyberButton>
               )}
             </BracketCard>
@@ -316,6 +503,7 @@ export default function App() {
                 const targetUrl = page.urls.original || page.urls.regular;
                 const previewImg = page.urls.regular || page.urls.small || page.urls.original;
                 const isDownloadingThis = downloadingIndex === idx;
+                const progressPct = singleProgress[idx] || 0;
 
                 return (
                   <View key={idx} style={styles.pageCard}>
@@ -324,21 +512,33 @@ export default function App() {
                       onPress={() => setPreviewUrl(previewImg)}
                       style={styles.imageWrapper}
                     >
-                      <Image
-                        source={{
-                          uri: previewImg,
-                          headers: {
-                            Referer: PIXIV_REFERER,
-                          },
-                        }}
+                      <ArtworkPreviewImage
+                        previewUrl={previewImg}
                         style={styles.pageImage}
                         contentFit="cover"
-                        transition={200}
                       />
                       <View style={styles.zoomIndicator}>
                         <Maximize2 color={colors.text0} size={14} />
                       </View>
                     </TouchableOpacity>
+
+                    {/* Single Download Progress Bar */}
+                    {isDownloadingThis && (
+                      <View style={styles.singleProgressContainer}>
+                        <View style={styles.progressHeaderRow}>
+                          <Text style={styles.progressTitle}>DOWNLOADING HI-RES...</Text>
+                          <Text style={styles.progressPercentText}>{progressPct}%</Text>
+                        </View>
+                        <View style={styles.progressBarTrack}>
+                          <View
+                            style={[
+                              styles.progressBarFill,
+                              { width: `${progressPct}%` },
+                            ]}
+                          />
+                        </View>
+                      </View>
+                    )}
 
                     <View style={styles.pageFooter}>
                       <Text style={styles.pageNumber}>
@@ -348,8 +548,8 @@ export default function App() {
                         variant="outline"
                         size="sm"
                         style={styles.downloadSingleBtn}
-                        onPress={() => handleDownloadSingle(targetUrl, idx)}
-                        disabled={isDownloadingThis}
+                        onPress={() => confirmDownloadSingle(targetUrl, idx)}
+                        disabled={isDownloadingThis || downloadingAll}
                         icon={!isDownloadingThis ? <Download color={colors.accent} size={13} /> : undefined}
                       >
                         {isDownloadingThis ? (
@@ -385,6 +585,63 @@ export default function App() {
         </View>
       </ScrollView>
 
+      {/* Styled In-App Confirmation & Alert Dialog Modal */}
+      <Modal
+        visible={dialog.visible}
+        transparent
+        animationType="fade"
+        onRequestClose={closeDialog}
+      >
+        <TouchableWithoutFeedback onPress={closeDialog}>
+          <View style={styles.dialogBackdrop}>
+            <TouchableWithoutFeedback>
+              <View style={styles.dialogCard}>
+                <View style={styles.dialogHeader}>
+                  <View style={styles.dialogTitleRow}>
+                    {dialog.variant === 'danger' && <AlertCircle color={colors.danger} size={18} />}
+                    {dialog.variant === 'success' && <CheckCircle2 color={colors.success} size={18} />}
+                    {dialog.variant === 'info' && <Info color={colors.accent} size={18} />}
+                    <Text
+                      style={[
+                        styles.dialogTitle,
+                        dialog.variant === 'danger' && { color: colors.danger },
+                        dialog.variant === 'success' && { color: colors.success },
+                      ]}
+                    >
+                      {dialog.title}
+                    </Text>
+                  </View>
+                  <TouchableOpacity onPress={closeDialog} style={styles.dialogCloseBtn}>
+                    <X color={colors.text2} size={16} />
+                  </TouchableOpacity>
+                </View>
+
+                <Text style={styles.dialogMessage}>{dialog.message}</Text>
+
+                <View style={styles.dialogActionsRow}>
+                  {dialog.cancelLabel && (
+                    <CyberButton
+                      variant="ghost"
+                      size="sm"
+                      style={styles.dialogCancelBtn}
+                      onPress={dialog.onCancel ? dialog.onCancel : closeDialog}
+                      label={dialog.cancelLabel}
+                    />
+                  )}
+                  <CyberButton
+                    variant={dialog.variant === 'danger' ? 'danger' : 'primary'}
+                    size="sm"
+                    style={styles.dialogConfirmBtn}
+                    onPress={dialog.onConfirm ? dialog.onConfirm : closeDialog}
+                    label={dialog.confirmLabel || 'OK'}
+                  />
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
       {/* Fullscreen Preview Modal */}
       <Modal
         visible={!!previewUrl}
@@ -392,31 +649,22 @@ export default function App() {
         animationType="fade"
         onRequestClose={() => setPreviewUrl(null)}
       >
-        <TouchableWithoutFeedback onPress={() => setPreviewUrl(null)}>
-          <View style={styles.modalBackdrop}>
-            <TouchableOpacity
-              style={styles.closeModalBtn}
-              onPress={() => setPreviewUrl(null)}
-              hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
-            >
-              <X color={colors.text} size={24} />
-            </TouchableOpacity>
-            {previewUrl && (
-              <TouchableWithoutFeedback onPress={() => setPreviewUrl(null)}>
-                <Image
-                  source={{
-                    uri: previewUrl,
-                    headers: {
-                      Referer: PIXIV_REFERER,
-                    },
-                  }}
-                  style={styles.fullscreenImage}
-                  contentFit="contain"
-                />
-              </TouchableWithoutFeedback>
-            )}
-          </View>
-        </TouchableWithoutFeedback>
+        <View style={styles.modalBackdrop}>
+          <TouchableOpacity
+            style={styles.closeModalBtn}
+            onPress={() => setPreviewUrl(null)}
+            hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
+          >
+            <X color={colors.text} size={24} />
+          </TouchableOpacity>
+          {previewUrl && (
+            <ArtworkPreviewImage
+              previewUrl={previewUrl}
+              style={styles.fullscreenImage}
+              contentFit="contain"
+            />
+          )}
+        </View>
       </Modal>
     </SafeAreaView>
   );
@@ -495,29 +743,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: colors.accent,
-    borderRadius: 6,
     paddingHorizontal: 14,
     height: 44,
     gap: 6,
   },
-  pasteButtonText: {
-    color: colors.accent,
-    fontWeight: '700',
-    fontSize: 12,
-    letterSpacing: 0.5,
-  },
   primaryButton: {
     flex: 1,
-    backgroundColor: colors.accent,
     height: 44,
-    borderRadius: 6,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  buttonDisabled: {
-    opacity: 0.6,
   },
   primaryButtonText: {
     color: colors.bg0,
@@ -592,6 +826,50 @@ const styles = StyleSheet.create({
     fontSize: 12,
     letterSpacing: 0.5,
   },
+  batchProgressContainer: {
+    marginTop: 10,
+    padding: 10,
+    backgroundColor: colors.bg2,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+  },
+  singleProgressContainer: {
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 4,
+    backgroundColor: colors.bg2,
+    borderTopWidth: 1,
+    borderTopColor: colors.borderSubtle,
+  },
+  progressHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  progressTitle: {
+    fontSize: 10,
+    color: colors.accent,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  progressPercentText: {
+    fontSize: 11,
+    color: colors.text0,
+    fontWeight: '700',
+  },
+  progressBarTrack: {
+    height: 4,
+    backgroundColor: colors.bg3,
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: '100%',
+    backgroundColor: colors.accent,
+    borderRadius: 2,
+  },
   pagesSection: {
     marginTop: 8,
   },
@@ -616,15 +894,24 @@ const styles = StyleSheet.create({
     position: 'relative',
     backgroundColor: colors.bg2,
   },
+  previewContainer: {
+    position: 'relative',
+  },
   pageImage: {
     width: '100%',
     height: '100%',
+  },
+  imageLoaderOverlay: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: colors.bg2,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   zoomIndicator: {
     position: 'absolute',
     right: 10,
     top: 10,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    backgroundColor: 'rgba(0,0,0,0.65)',
     padding: 6,
     borderRadius: 4,
   },
@@ -644,8 +931,6 @@ const styles = StyleSheet.create({
   downloadSingleBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.accent,
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 4,
@@ -705,5 +990,64 @@ const styles = StyleSheet.create({
   fullscreenImage: {
     width: SCREEN_WIDTH,
     height: '80%',
+  },
+  // Custom Cyber In-App Dialog
+  dialogBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  dialogCard: {
+    width: '100%',
+    maxWidth: 380,
+    backgroundColor: colors.bg1,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    padding: 18,
+  },
+  dialogHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  dialogTitleRow: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginRight: 8,
+  },
+  dialogTitle: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.text0,
+    letterSpacing: 0.5,
+  },
+  dialogCloseBtn: {
+    padding: 6,
+    marginLeft: 4,
+    borderRadius: 4,
+  },
+  dialogMessage: {
+    fontSize: 13,
+    color: colors.text1,
+    lineHeight: 20,
+    marginBottom: 20,
+  },
+  dialogActionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+  },
+  dialogCancelBtn: {
+    paddingHorizontal: 12,
+  },
+  dialogConfirmBtn: {
+    paddingHorizontal: 16,
   },
 });

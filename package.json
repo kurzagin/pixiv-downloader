@@ -11,6 +11,9 @@
     "build": "bun --filter web build",
     "start": "bun --filter web start",
     "dev:all": "bun --filter web dev",
-    "build:all": "bun --filter web build"
+    "build:all": "bun --filter web build",
+    "build:apk": "bun --filter mobile build:apk",
+    "build:apk:debug": "bun --filter mobile build:apk:debug",
+    "prebuild": "bun --filter mobile prebuild"
   }
 }
