@@ -9,8 +9,8 @@
     "web": "expo start --web"
   },
   "dependencies": {
-    "@krpkg/ui": "github:krpkg/ui",
-    "pixivjs": "github:krpkg/pixivjs",
+    "@krpkg/pixivjs": "^1.0.1",
+    "@krpkg/ui": "^0.3.1",
     "@react-native-async-storage/async-storage": "3.1.1",
     "expo": "~58.0.23",
     "expo-clipboard": "~58.0.4",

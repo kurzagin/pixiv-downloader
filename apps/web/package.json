@@ -8,20 +8,17 @@
     "start": "next start"
   },
   "dependencies": {
-    "@krpkg/ui": "github:krpkg/ui",
-    "pixivjs": "github:krpkg/pixivjs",
-    "archiver": "^7.0.1",
+    "@krpkg/pixivjs": "^1.0.1",
+    "@krpkg/ui": "^0.3.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.61.0",
     "next": "^16.4.5",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
-    "tailwind-merge": "^3.7.0",
-    "undici": "^7.24.2"
+    "tailwind-merge": "^3.7.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",
-    "@types/archiver": "^6.0.4",
     "@types/node": "^24.19.2",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",

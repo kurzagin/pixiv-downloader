@@ -25,7 +25,13 @@ import {
   TechLabel,
   Logo,
 } from '@krpkg/ui';
-import { ArtworkData } from '@/types/pixiv';
+import {
+  ArtworkData,
+  PixivValidationError,
+  PixivNotFoundError,
+  PixivRateLimitError,
+  PixivAuthError,
+} from '@/types/pixiv';
 
 export default function Home() {
   const [inputUrl, setInputUrl] = useState('');
