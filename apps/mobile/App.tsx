@@ -21,6 +21,7 @@ import { Image } from 'expo-image';
 import * as Clipboard from 'expo-clipboard';
 import * as ExpoLinking from 'expo-linking';
 import { colors } from '@krpkg/ui/tokens';
+import { Badge, Dot, BracketCard, TechLabel, Button as CyberButton } from '@krpkg/ui/native';
 import {
   Search,
   Download,
@@ -40,6 +41,7 @@ import {
   extractIllustId,
   fetchPixivArtwork,
   downloadImageToGallery,
+  sanitizeFilename,
   PIXIV_REFERER,
 } from './src/services/pixiv';
 
@@ -142,7 +144,8 @@ export default function App() {
     setDownloadingIndex(index);
     try {
       const ext = url.split('.').pop()?.split('?')[0] || 'jpg';
-      const fileName = `pixiv_${artwork.id}_p${index}_${Date.now()}.${ext}`;
+      const safeTitle = sanitizeFilename(artwork.title);
+      const fileName = `pixiv_${artwork.id}_p${index}_${safeTitle}.${ext}`;
       const res = await downloadImageToGallery(url, fileName);
       if (res.method === 'downloads') {
         Alert.alert('Saved to /Downloads!', `Image p${index} saved directly to your Downloads folder.`);
@@ -161,11 +164,12 @@ export default function App() {
     setDownloadingAll(true);
     let successCount = 0;
     try {
+      const safeTitle = sanitizeFilename(artwork.title);
       for (let i = 0; i < artwork.pages.length; i++) {
         const page = artwork.pages[i];
         const url = page.urls.original || page.urls.regular;
         const ext = url.split('.').pop()?.split('?')[0] || 'jpg';
-        const fileName = `pixiv_${artwork.id}_p${i}_${Date.now()}.${ext}`;
+        const fileName = `pixiv_${artwork.id}_p${i}_${safeTitle}.${ext}`;
         await downloadImageToGallery(url, fileName);
         successCount++;
       }
@@ -183,12 +187,12 @@ export default function App() {
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Header Branding */}
         <View style={styles.header}>
-          <View style={styles.badge}>
-            <View style={styles.dot} />
-            <Text style={styles.badgeText}>STANDALONE // ZERO BACKEND</Text>
+          <View style={styles.badgeRow}>
+            <Badge label="STANDALONE // ZERO BACKEND" variant="accent" />
+            <Dot color="accent" size={6} />
           </View>
           <Text style={styles.title}>PIXIV EXTRACTOR</Text>
-          <Text style={styles.subtitle}>Direct native extraction & gallery downloader</Text>
+          <TechLabel label="NETWORK_NODE" jp="ピクシブ抽出端末" coord="PX-MOBILE-V2" style={styles.techLabel} />
         </View>
 
         {/* Search & Paste Card */}
@@ -216,26 +220,30 @@ export default function App() {
           </View>
 
           <View style={styles.buttonRow}>
-            <TouchableOpacity
+            <CyberButton
+              variant="outline"
+              size="md"
               style={styles.pasteButton}
               onPress={handlePasteFromClipboard}
               disabled={loading}
-            >
-              <ClipboardPaste color={colors.accent} size={15} />
-              <Text style={styles.pasteButtonText}>PASTE</Text>
-            </TouchableOpacity>
+              icon={<ClipboardPaste color={colors.accent} size={15} />}
+              label="PASTE"
+            />
 
-            <TouchableOpacity
-              style={[styles.primaryButton, loading && styles.buttonDisabled]}
+            <CyberButton
+              variant="primary"
+              size="md"
+              style={styles.primaryButton}
               onPress={handleSearch}
               disabled={loading}
+              icon={!loading ? <Search color={colors.bg0} size={15} /> : undefined}
             >
               {loading ? (
                 <ActivityIndicator color={colors.bg0} size="small" />
               ) : (
                 <Text style={styles.primaryButtonText}>EXTRACT ARTWORK</Text>
               )}
-            </TouchableOpacity>
+            </CyberButton>
           </View>
         </View>
 
@@ -250,8 +258,13 @@ export default function App() {
         {/* Artwork Info & Media */}
         {artwork && (
           <View style={styles.artworkContainer}>
-            {/* Metadata Card */}
-            <View style={styles.metaCard}>
+            {/* Metadata Card with Cyberpunk Bracket HUD */}
+            <BracketCard active style={styles.metaCard}>
+              <View style={styles.artBadgeRow}>
+                <Badge label={`ID: ${artwork.id}`} variant="accent" />
+                <Badge label={`${artwork.pages.length} PAGES`} variant="default" />
+              </View>
+
               <Text style={styles.artTitle}>{artwork.title}</Text>
               <Text style={styles.artistName}>by {artwork.userName} (@{artwork.userAccount})</Text>
 
@@ -277,24 +290,24 @@ export default function App() {
 
               {/* Batch Download Button */}
               {artwork.pages.length > 1 && (
-                <TouchableOpacity
+                <CyberButton
+                  variant="primary"
+                  size="md"
                   style={styles.batchDownloadBtn}
                   onPress={handleDownloadAll}
                   disabled={downloadingAll}
+                  icon={!downloadingAll ? <Download color={colors.bg0} size={16} /> : undefined}
                 >
                   {downloadingAll ? (
                     <ActivityIndicator color={colors.bg0} size="small" />
                   ) : (
-                    <>
-                      <Download color={colors.bg0} size={16} />
-                      <Text style={styles.batchDownloadText}>
-                        SAVE ALL {artwork.pages.length} TO GALLERY
-                      </Text>
-                    </>
+                    <Text style={styles.batchDownloadText}>
+                      SAVE ALL {artwork.pages.length} TO GALLERY
+                    </Text>
                   )}
-                </TouchableOpacity>
+                </CyberButton>
               )}
-            </View>
+            </BracketCard>
 
             {/* Artwork Pages Grid / List */}
             <View style={styles.pagesSection}>
@@ -331,20 +344,20 @@ export default function App() {
                       <Text style={styles.pageNumber}>
                         PAGE {idx + 1} // {page.width}x{page.height}
                       </Text>
-                      <TouchableOpacity
+                      <CyberButton
+                        variant="outline"
+                        size="sm"
                         style={styles.downloadSingleBtn}
                         onPress={() => handleDownloadSingle(targetUrl, idx)}
                         disabled={isDownloadingThis}
+                        icon={!isDownloadingThis ? <Download color={colors.accent} size={13} /> : undefined}
                       >
                         {isDownloadingThis ? (
                           <ActivityIndicator color={colors.accent} size="small" />
                         ) : (
-                          <>
-                            <Download color={colors.accent} size={14} />
-                            <Text style={styles.downloadSingleText}>SAVE HI-RES</Text>
-                          </>
+                          <Text style={styles.downloadSingleText}>SAVE HI-RES</Text>
                         )}
-                      </TouchableOpacity>
+                      </CyberButton>
                     </View>
                   </View>
                 );
@@ -423,29 +436,14 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     alignItems: 'center',
   },
-  badge: {
+  badgeRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 4,
-    backgroundColor: colors.bg2,
-    borderWidth: 1,
-    borderColor: colors.border,
-    marginBottom: 8,
+    gap: 8,
+    marginBottom: 10,
   },
-  dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.accent,
-    marginRight: 6,
-  },
-  badgeText: {
-    fontSize: 10,
-    color: colors.accent,
-    fontWeight: '600',
-    letterSpacing: 1,
+  techLabel: {
+    marginTop: 6,
   },
   title: {
     fontSize: 22,
@@ -453,10 +451,11 @@ const styles = StyleSheet.create({
     color: colors.text0,
     letterSpacing: 1.5,
   },
-  subtitle: {
-    fontSize: 12,
-    color: colors.text2,
-    marginTop: 4,
+  artBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
   },
   searchCard: {
     backgroundColor: colors.bg1,

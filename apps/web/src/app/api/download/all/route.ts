@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import archiver from 'archiver';
-import { fetchPixivArtwork, fetchPixivImageStream } from '@/lib/pixiv';
-import { PassThrough, Readable } from 'stream';
+import {
+  fetchPixivArtwork,
+  downloadArtworkZip,
+  PixivValidationError,
+  PixivNotFoundError,
+  PixivRateLimitError,
+  PixivAuthError,
+  PixivDownloadError,
+} from '@/lib/pixiv';
 
 export async function POST(request: NextRequest) {
   try {
@@ -11,80 +17,46 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing "illustId"' }, { status: 400 });
     }
 
-    const data = await fetchPixivArtwork(illustId);
-    if (!data.pages || data.pages.length === 0) {
+    const artwork = await fetchPixivArtwork(illustId);
+    if (!artwork.pages || artwork.pages.length === 0) {
       return NextResponse.json({ error: 'No images found for this artwork' }, { status: 404 });
     }
 
-    const archive = archiver('zip', {
-      zlib: { level: 5 },
+    const { data, filename } = await downloadArtworkZip(artwork, {
+      concurrency: 4,
+      signal: request.signal,
     });
 
-    const passThrough = new PassThrough();
-    archive.pipe(passThrough);
-
-    let isAborted = false;
-    const onAbort = () => {
-      isAborted = true;
-      try {
-        archive.abort();
-      } catch {
-        // ignore
-      }
-    };
-
-    if (request.signal) {
-      request.signal.addEventListener('abort', onAbort, { once: true });
-    }
-
-    // Asynchronously append images to archive
-    (async () => {
-      try {
-        for (let i = 0; i < data.pages.length; i++) {
-          if (isAborted || request.signal?.aborted) {
-            break;
-          }
-          const page = data.pages[i];
-          const url = page.urls.original;
-          const ext = url.split('.').pop()?.split('?')[0] || 'jpg';
-          const filename = `${data.id}_p${i}_${data.title.replace(/[\\/:*?"<>|]/g, '_')}.${ext}`;
-
-          try {
-            const { body } = await fetchPixivImageStream(url);
-            archive.append(body as any, { name: filename });
-          } catch (err: any) {
-            console.error(`Error appending page ${i} (${url}):`, err.message);
-          }
-        }
-        if (!isAborted && !request.signal?.aborted) {
-          await archive.finalize();
-        }
-      } catch (archiveErr: any) {
-        console.error('Archiver error:', archiveErr);
-        archive.abort();
-      } finally {
-        if (request.signal) {
-          request.signal.removeEventListener('abort', onAbort);
-        }
-      }
-    })();
-
-    const zipFilename = `${data.id}_${data.title.replace(/[\\/:*?"<>|]/g, '_')}.zip`;
-    const safeZipName = encodeURIComponent(zipFilename);
-
-    const webStream = Readable.toWeb(passThrough) as ReadableStream;
+    const safeZipName = encodeURIComponent(filename);
     const headers = new Headers();
     headers.set('Content-Type', 'application/zip');
+    headers.set('Content-Length', String(data.byteLength));
     headers.set(
       'Content-Disposition',
       `attachment; filename="${safeZipName}"; filename*=UTF-8''${safeZipName}`
     );
 
-    return new Response(webStream, {
+    return new Response(data as unknown as BodyInit, {
       status: 200,
       headers,
     });
   } catch (err: any) {
+    if (err instanceof PixivValidationError) {
+      return NextResponse.json({ error: err.message }, { status: 400 });
+    }
+    if (err instanceof PixivNotFoundError) {
+      return NextResponse.json({ error: err.message }, { status: 404 });
+    }
+    if (err instanceof PixivRateLimitError) {
+      return NextResponse.json({ error: err.message }, { status: 429 });
+    }
+    if (err instanceof PixivAuthError) {
+      return NextResponse.json({ error: err.message }, { status: 403 });
+    }
+    if (err instanceof PixivDownloadError) {
+      return NextResponse.json({ error: err.message }, { status: 502 });
+    }
+
     console.error('Batch download error:', err.message);
     return NextResponse.json(
       { error: err.message || 'Internal server error' },

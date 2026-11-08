@@ -4,13 +4,56 @@ import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { PixivClient, extractIllustId, isPixivCdnUrl } from 'pixivjs';
-import type { PixivPage, ArtworkData } from 'pixivjs';
+import {
+  PixivClient,
+  extractIllustId,
+  isPixivCdnUrl,
+  sanitizeFilename,
+  PixivError,
+  PixivValidationError,
+  PixivNotFoundError,
+  PixivRateLimitError,
+  PixivAuthError,
+  PixivApiError,
+  PixivDownloadError,
+} from '@krpkg/pixivjs';
+import type {
+  PixivPage,
+  PixivPageUrls,
+  PixivTag,
+  ArtworkData,
+  DownloadProgress,
+  DownloadZipOptions,
+  UgoiraMeta,
+} from '@krpkg/pixivjs';
 
-export { extractIllustId, isPixivCdnUrl };
-export type { PixivPage, ArtworkData };
+export {
+  extractIllustId,
+  isPixivCdnUrl,
+  sanitizeFilename,
+  PixivError,
+  PixivValidationError,
+  PixivNotFoundError,
+  PixivRateLimitError,
+  PixivAuthError,
+  PixivApiError,
+  PixivDownloadError,
+};
 
-export const pixivClient = new PixivClient();
+export type {
+  PixivPage,
+  PixivPageUrls,
+  PixivTag,
+  ArtworkData,
+  DownloadProgress,
+  DownloadZipOptions,
+  UgoiraMeta,
+};
+
+export const pixivClient = new PixivClient({
+  retries: 2,
+  retryDelay: 800,
+});
 
 export const PIXIV_REFERER = 'https://www.pixiv.net/';
 export const PIXIV_HEADERS = {
@@ -24,7 +67,7 @@ export const PIXIV_HEADERS = {
 /**
  * Direct fetch without backend proxy using pixivjs
  */
-export async function fetchPixivArtwork(illustId: string): Promise<ArtworkData> {
+export async function fetchPixivArtwork(illustId: string | number): Promise<ArtworkData> {
   return pixivClient.getArtwork(illustId);
 }
 
